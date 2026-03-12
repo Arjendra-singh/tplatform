@@ -1,0 +1,13 @@
+{
+  "name": "tender-sahayak-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace @tplatform/api",
+    "start:api": "npm run start --workspace @tplatform/api"
+  }
+}
