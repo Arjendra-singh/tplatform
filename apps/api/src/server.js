@@ -12,6 +12,7 @@ import {
   InMemoryRefreshTokenRepository,
   InMemoryAuditLogRepository,
   InMemoryDocumentRepository
+  InMemoryAuditLogRepository
 } from "./repositories/in-memory.js";
 import {
   PostgresUserRepository,
@@ -21,6 +22,7 @@ import {
   PostgresRefreshTokenRepository,
   PostgresAuditLogRepository,
   PostgresDocumentRepository
+  PostgresAuditLogRepository
 } from "./repositories/postgres.js";
 
 const PRODUCT_NAME = "Tender Sahayak Platform";
@@ -125,6 +127,7 @@ export function createAppState() {
     documentProcessingJobs: [],
     aiUsageDaily: [],
     aiConversations: []
+    bookmarks: [], refreshTokens: [], auditLogs: []
   };
 }
 
@@ -142,6 +145,7 @@ export async function createRepositories({ adapter = process.env.REPOSITORY_ADAP
       refreshTokens: new PostgresRefreshTokenRepository(client),
       auditLogs: new PostgresAuditLogRepository(client),
       documents: new PostgresDocumentRepository(client)
+      auditLogs: new PostgresAuditLogRepository(client)
     };
   }
   return {
@@ -152,6 +156,7 @@ export async function createRepositories({ adapter = process.env.REPOSITORY_ADAP
     refreshTokens: new InMemoryRefreshTokenRepository(state),
     auditLogs: new InMemoryAuditLogRepository(state),
     documents: new InMemoryDocumentRepository(state)
+    auditLogs: new InMemoryAuditLogRepository(state)
   };
 }
 
@@ -235,6 +240,9 @@ export function createServer(options = {}) {
   const state = options.state || createAppState();
   const reposPromise = createRepositories({ adapter: options.adapter, state, postgresClient: options.postgresClient });
   const objectStorage = options.objectStorage || new InMemoryObjectStorage();
+export function createServer(options = {}) {
+  const state = options.state || createAppState();
+  const reposPromise = createRepositories({ adapter: options.adapter, state, postgresClient: options.postgresClient });
   const loginLimiter = new InMemoryRateLimiter({ maxAttempts: Number(process.env.RATE_LIMIT_LOGIN || 5), windowSec: Number(process.env.RATE_LIMIT_WINDOW_SEC || 600) });
   const refreshLimiter = new InMemoryRateLimiter({ maxAttempts: Number(process.env.RATE_LIMIT_REFRESH || 10), windowSec: Number(process.env.RATE_LIMIT_WINDOW_SEC || 600) });
 
