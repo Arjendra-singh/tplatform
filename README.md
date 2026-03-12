@@ -60,7 +60,7 @@ psql "$DATABASE_URL" -f apps/api/migrations/001_init.sql
 
 - ✅ Document folder/file CRUD foundation implemented with version history support.
 - ✅ File metadata validation (mime + size bounds) and org-scoped authorization added.
-- ⏳ Object storage upload orchestration and antivirus/OCR workers are next.
+- ✅ Object storage baseline + antivirus/OCR/index pipeline baseline implemented.
 
 ## Sprint 4 status
 
@@ -82,3 +82,7 @@ psql "$DATABASE_URL" -f apps/api/migrations/001_init.sql
 npm run backup:state
 npm run restore:state -- <snapshot-file>
 ```
+
+## Merge conflict note
+
+- Consolidated environment and roadmap updates from both branches into this branch so PR conflict resolution can be completed cleanly.
