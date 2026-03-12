@@ -31,3 +31,10 @@ npm install
 npm run start:api
 npm test
 ```
+
+## Ops validation
+
+```bash
+npm run backup:state
+npm run restore:state -- <snapshot-file>
+```

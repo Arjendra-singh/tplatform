@@ -15,6 +15,17 @@ Backend milestone now includes RBAC, repository abstraction (memory + Postgres a
 - `GET /api/v1/tenders/:id`
 - `POST /api/v1/tenders/:id/bookmark`
 - `GET /api/v1/tenders/bookmarks`
+- `GET /api/v1/documents/folders`
+- `POST /api/v1/documents/folders`
+- `PATCH /api/v1/documents/folders/:folderId`
+- `GET /api/v1/documents/folders/:folderId/files`
+- `POST /api/v1/documents/folders/:folderId/files`
+- `GET /api/v1/documents/files/:fileId/versions`
+- `POST /api/v1/documents/files/:fileId/versions`
+- `GET /api/v1/documents/files/:fileId`
+- `GET /api/v1/documents/processing-jobs`
+- `POST /api/v1/ai/chat`
+- `GET /api/v1/ai/usage`
 
 ## API compatibility
 
@@ -44,3 +55,34 @@ psql "$DATABASE_URL" -f apps/api/migrations/001_init.sql
 - `docs/architecture.md`
 - `docs/implementation-roadmap.md`
 - `docs/setup.md`
+
+## Sprint 3 status
+
+- ✅ Document folder/file CRUD foundation implemented with version history support.
+- ✅ File metadata validation (mime + size bounds) and org-scoped authorization added.
+- ✅ Object storage baseline + antivirus/OCR/index pipeline baseline implemented.
+
+## Sprint 4 status
+
+- ✅ Server-side AI gateway endpoint implemented (no client-side model key exposure).
+- ✅ File-context retrieval baseline wired from tenders and document metadata.
+- ✅ Guardrails + citation-style response payload + per-org usage quotas implemented.
+- ⏳ Advanced vector retrieval and model-provider adapters are next.
+
+## Sprint 5 status
+
+- ✅ IaC baseline for cloud deployment added (`ops/iac/terraform`).
+- ✅ Monitoring dashboard and alert rules added (`ops/monitoring`).
+- ✅ Disaster recovery runbook and backup/restore validation scripts added.
+- ✅ Security review and penetration remediation tracker added (`ops/runbooks/security-review.md`).
+
+## Ops Commands
+
+```bash
+npm run backup:state
+npm run restore:state -- <snapshot-file>
+```
+
+## Merge conflict note
+
+- Consolidated environment and roadmap updates from both branches into this branch so PR conflict resolution can be completed cleanly.

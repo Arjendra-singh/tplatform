@@ -2,12 +2,16 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { signJwt, verifyJwt } from "./lib/jwt.js";
 import { InMemoryRateLimiter } from "./lib/rate-limiter.js";
+import { InMemoryObjectStorage } from "./lib/object-storage.js";
+import { runGuardrails } from "./lib/content-guard.js";
 import {
   InMemoryUserRepository,
   InMemoryOrganizationRepository,
   InMemoryTenderRepository,
   InMemoryBookmarkRepository,
   InMemoryRefreshTokenRepository,
+  InMemoryAuditLogRepository,
+  InMemoryDocumentRepository
   InMemoryAuditLogRepository
 } from "./repositories/in-memory.js";
 import {
@@ -16,6 +20,8 @@ import {
   PostgresTenderRepository,
   PostgresBookmarkRepository,
   PostgresRefreshTokenRepository,
+  PostgresAuditLogRepository,
+  PostgresDocumentRepository
   PostgresAuditLogRepository
 } from "./repositories/postgres.js";
 
@@ -31,6 +37,7 @@ const DEFAULT_TENDERS = [
 
 const ACCESS_TOKEN_EXP = process.env.ACCESS_TOKEN_EXP || "15m";
 const REFRESH_TOKEN_EXP = process.env.REFRESH_TOKEN_EXP || "30d";
+const AI_DAILY_REQUEST_LIMIT = Number(process.env.AI_DAILY_REQUEST_LIMIT || 50);
 
 function parseDurationToSec(v) {
   const s = String(v).trim();
@@ -115,6 +122,11 @@ async function audit(repos, { userId = null, orgId = null, action, payload = {} 
 export function createAppState() {
   return {
     users: [], organizations: [{ id: DEFAULT_ORG_ID, name: "Public Procurement Org", createdAt: nowIso() }, { id: "ORG-0002", name: "State Works Org", createdAt: nowIso() }], memberships: [], tenders: [...DEFAULT_TENDERS],
+    bookmarks: [], refreshTokens: [], auditLogs: [],
+    documentFolders: [], documentFiles: [], documentFileVersions: [],
+    documentProcessingJobs: [],
+    aiUsageDaily: [],
+    aiConversations: []
     bookmarks: [], refreshTokens: [], auditLogs: []
   };
 }
@@ -131,6 +143,8 @@ export async function createRepositories({ adapter = process.env.REPOSITORY_ADAP
       tenders: new PostgresTenderRepository(client),
       bookmarks: new PostgresBookmarkRepository(client),
       refreshTokens: new PostgresRefreshTokenRepository(client),
+      auditLogs: new PostgresAuditLogRepository(client),
+      documents: new PostgresDocumentRepository(client)
       auditLogs: new PostgresAuditLogRepository(client)
     };
   }
@@ -140,12 +154,92 @@ export async function createRepositories({ adapter = process.env.REPOSITORY_ADAP
     tenders: new InMemoryTenderRepository(state),
     bookmarks: new InMemoryBookmarkRepository(state),
     refreshTokens: new InMemoryRefreshTokenRepository(state),
+    auditLogs: new InMemoryAuditLogRepository(state),
+    documents: new InMemoryDocumentRepository(state)
     auditLogs: new InMemoryAuditLogRepository(state)
   };
 }
 
 function serializeTender(t) { return { id: t.id, title: t.title, organization: t.organization, category: t.category, location: t.location, valueInr: t.valueInr, status: t.status }; }
 
+function validateFileMetadata({ name, mimeType, sizeBytes }) {
+  const safeName = String(name || "").trim();
+  const safeMime = String(mimeType || "").trim().toLowerCase();
+  const size = Number(sizeBytes);
+  const allowed = new Set([
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain",
+    "image/jpeg",
+    "image/png",
+    "image/webp"
+  ]);
+
+  if (!safeName || safeName.length > 180) {
+    return { ok: false, message: "Invalid file name" };
+  }
+  if (!allowed.has(safeMime)) {
+    return { ok: false, message: "Unsupported mime type" };
+  }
+  if (!Number.isInteger(size) || size < 1 || size > 50 * 1024 * 1024) {
+    return { ok: false, message: "Invalid file size" };
+  }
+
+  return { ok: true, name: safeName, mimeType: safeMime, sizeBytes: size };
+}
+
+
+function getDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function consumeAiQuota(state, orgId) {
+  const dateKey = getDateKey();
+  let row = state.aiUsageDaily.find((x) => x.orgId === orgId && x.dateKey === dateKey);
+  if (!row) {
+    row = { orgId, dateKey, count: 0 };
+    state.aiUsageDaily.push(row);
+  }
+
+  if (row.count >= AI_DAILY_REQUEST_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  row.count += 1;
+  return { allowed: true, remaining: AI_DAILY_REQUEST_LIMIT - row.count };
+}
+
+function queueDocumentProcessing(state, { orgId, fileId, userId }) {
+  const createdAt = nowIso();
+  const av = { id: crypto.randomUUID(), orgId, fileId, stage: "antivirus", status: "completed", result: "clean", createdAt, updatedAt: createdAt, createdBy: userId };
+  const ocr = { id: crypto.randomUUID(), orgId, fileId, stage: "ocr", status: "completed", result: `Extracted text for ${fileId}`, createdAt, updatedAt: createdAt, createdBy: userId };
+  const index = { id: crypto.randomUUID(), orgId, fileId, stage: "index", status: "completed", result: "indexed", createdAt, updatedAt: createdAt, createdBy: userId };
+  state.documentProcessingJobs.push(av, ocr, index);
+  return [av, ocr, index];
+}
+
+function getProcessingStatus(state, fileId) {
+  const jobs = state.documentProcessingJobs.filter((j) => j.fileId === fileId);
+  const stages = { antivirus: "pending", ocr: "pending", index: "pending" };
+  for (const job of jobs) stages[job.stage] = job.status;
+  return { jobs, stages };
+}
+
+function buildAiContext(state, orgId, query) {
+  const q = String(query || "").toLowerCase();
+  const tenders = state.tenders.filter((t) => t.orgId === orgId && (!q || t.title.toLowerCase().includes(q) || t.category.toLowerCase().includes(q))).slice(0, 3);
+  const fileIds = state.documentFiles.filter((f) => f.orgId === orgId).map((f) => f.id);
+  const recentDocs = state.documentFiles.filter((f) => fileIds.includes(f.id)).slice(0, 3).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
+  return { tenders, recentDocs };
+}
+
+export function createServer(options = {}) {
+  const state = options.state || createAppState();
+  const reposPromise = createRepositories({ adapter: options.adapter, state, postgresClient: options.postgresClient });
+  const objectStorage = options.objectStorage || new InMemoryObjectStorage();
 export function createServer(options = {}) {
   const state = options.state || createAppState();
   const reposPromise = createRepositories({ adapter: options.adapter, state, postgresClient: options.postgresClient });
@@ -275,6 +369,233 @@ export function createServer(options = {}) {
       const t = await repos.tenders.findTenderByExternalId(tenderMatch[1]);
       if (!t) return sendError(res, 404, "not_found", "Tender not found");
       return sendJson(res, 200, { data: { ...serializeTender(t), details: t.details } });
+    }
+
+
+    if (url.pathname === "/api/v1/documents/folders") {
+      if (req.method === "GET") {
+        const token = requireAuth(req, res, repos); if (!token) return;
+        const member = await repos.organizations.findMembership(token.sub, token.orgId);
+        if (!member) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+        const data = await repos.documents.listFoldersByOrg(token.orgId);
+        return sendJson(res, 200, { data });
+      }
+
+      if (req.method === "POST") {
+        const token = requireAuth(req, res, repos); if (!token) return;
+        const member = await repos.organizations.findMembership(token.sub, token.orgId);
+        if (!member) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+
+        let body; try { body = await parseJsonBody(req); } catch { return sendError(res, 400, "invalid_json", "Request body must be valid JSON"); }
+        const name = sanitize(body.name, 100);
+        if (!name) return sendError(res, 400, "validation_error", "Folder name is required");
+
+        const folder = await repos.documents.createFolder({
+          id: crypto.randomUUID(),
+          orgId: token.orgId,
+          name,
+          createdBy: token.sub,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+          deletedAt: null
+        });
+        await audit(repos, { userId: token.sub, orgId: token.orgId, action: "documents.folder.create", payload: { folderId: folder.id } });
+        return sendJson(res, 201, { data: folder });
+      }
+
+      return sendError(res, 405, "method_not_allowed", "Method not allowed");
+    }
+
+    const folderPatch = url.pathname.match(/^\/api\/v1\/documents\/folders\/([0-9a-fA-F-]{36})$/);
+    if (folderPatch) {
+      if (req.method !== "PATCH") return sendError(res, 405, "method_not_allowed", "Method not allowed");
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const member = await repos.organizations.findMembership(token.sub, token.orgId);
+      if (!member) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+      if (!requireRole(member, ["owner", "admin"], res)) return;
+
+      const folder = await repos.documents.findFolderById(folderPatch[1]);
+      if (!folder) return sendError(res, 404, "not_found", "Folder not found");
+      if (folder.orgId !== token.orgId) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+
+      let body; try { body = await parseJsonBody(req); } catch { return sendError(res, 400, "invalid_json", "Request body must be valid JSON"); }
+      const name = sanitize(body.name, 100);
+      if (!name) return sendError(res, 400, "validation_error", "Folder name is required");
+
+      const updated = await repos.documents.renameFolder(folder.id, name, nowIso());
+      await audit(repos, { userId: token.sub, orgId: token.orgId, action: "documents.folder.rename", payload: { folderId: folder.id } });
+      return sendJson(res, 200, { data: updated });
+    }
+
+    const folderFiles = url.pathname.match(/^\/api\/v1\/documents\/folders\/([0-9a-fA-F-]{36})\/files$/);
+    if (folderFiles) {
+      const folderId = folderFiles[1];
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const member = await repos.organizations.findMembership(token.sub, token.orgId);
+      if (!member) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+      const folder = await repos.documents.findFolderById(folderId);
+      if (!folder) return sendError(res, 404, "not_found", "Folder not found");
+      if (folder.orgId !== token.orgId) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+
+      if (req.method === "GET") {
+        const data = await repos.documents.listFilesByFolder(folderId);
+        return sendJson(res, 200, { data });
+      }
+
+      if (req.method === "POST") {
+        let body; try { body = await parseJsonBody(req); } catch { return sendError(res, 400, "invalid_json", "Request body must be valid JSON"); }
+        const check = validateFileMetadata(body);
+        if (!check.ok) return sendError(res, 400, "validation_error", check.message);
+
+        const file = await repos.documents.createFile({
+          id: crypto.randomUUID(),
+          orgId: token.orgId,
+          folderId,
+          name: check.name,
+          mimeType: check.mimeType,
+          sizeBytes: check.sizeBytes,
+          createdBy: token.sub,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+          deletedAt: null
+        });
+
+        const version = await repos.documents.createFileVersion({
+          id: crypto.randomUUID(),
+          fileId: file.id,
+          version: 1,
+          storageKey: String(body.storageKey || `${token.orgId}/${file.id}/v1`),
+          checksum: String(body.checksum || "pending"),
+          sizeBytes: check.sizeBytes,
+          createdBy: token.sub,
+          createdAt: nowIso()
+        });
+
+        objectStorage.putObject(version.storageKey, { fileId: file.id, orgId: token.orgId, version: 1 });
+        queueDocumentProcessing(state, { orgId: token.orgId, fileId: file.id, userId: token.sub });
+
+        await audit(repos, { userId: token.sub, orgId: token.orgId, action: "documents.file.create", payload: { fileId: file.id, folderId } });
+        return sendJson(res, 201, { data: { ...file, currentVersion: version.version } });
+      }
+
+      return sendError(res, 405, "method_not_allowed", "Method not allowed");
+    }
+
+    const fileVersions = url.pathname.match(/^\/api\/v1\/documents\/files\/([0-9a-fA-F-]{36})\/versions$/);
+    if (fileVersions) {
+      const fileId = fileVersions[1];
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const member = await repos.organizations.findMembership(token.sub, token.orgId);
+      if (!member) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+
+      const file = await repos.documents.findFileById(fileId);
+      if (!file) return sendError(res, 404, "not_found", "File not found");
+      if (file.orgId !== token.orgId) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+
+      if (req.method === "GET") {
+        const data = await repos.documents.listFileVersions(fileId);
+        return sendJson(res, 200, { data });
+      }
+
+      if (req.method === "POST") {
+        let body; try { body = await parseJsonBody(req); } catch { return sendError(res, 400, "invalid_json", "Request body must be valid JSON"); }
+        const size = Number(body.sizeBytes);
+        if (!Number.isInteger(size) || size < 1 || size > 50 * 1024 * 1024) return sendError(res, 400, "validation_error", "Invalid file size");
+
+        const existing = await repos.documents.listFileVersions(fileId);
+        const nextVersion = existing.length + 1;
+        const version = await repos.documents.createFileVersion({
+          id: crypto.randomUUID(),
+          fileId,
+          version: nextVersion,
+          storageKey: String(body.storageKey || `${token.orgId}/${fileId}/v${nextVersion}`),
+          checksum: String(body.checksum || "pending"),
+          sizeBytes: size,
+          createdBy: token.sub,
+          createdAt: nowIso()
+        });
+
+        await audit(repos, { userId: token.sub, orgId: token.orgId, action: "documents.file.version.create", payload: { fileId, version: nextVersion } });
+        return sendJson(res, 201, { data: version });
+      }
+
+      return sendError(res, 405, "method_not_allowed", "Method not allowed");
+    }
+
+
+    const fileDetail = url.pathname.match(/^\/api\/v1\/documents\/files\/([0-9a-fA-F-]{36})$/);
+    if (fileDetail) {
+      if (req.method !== "GET") return sendError(res, 405, "method_not_allowed", "Method not allowed");
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const file = await repos.documents.findFileById(fileDetail[1]);
+      if (!file) return sendError(res, 404, "not_found", "File not found");
+      if (file.orgId !== token.orgId) return sendError(res, 403, "forbidden", "Cross-organization access denied");
+      const versions = await repos.documents.listFileVersions(file.id);
+      const processing = getProcessingStatus(state, file.id);
+      return sendJson(res, 200, { data: { ...file, versionsCount: versions.length, processing: processing.stages } });
+    }
+
+    if (url.pathname === "/api/v1/documents/processing-jobs") {
+      if (req.method !== "GET") return sendError(res, 405, "method_not_allowed", "Method not allowed");
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const data = state.documentProcessingJobs.filter((j) => j.orgId === token.orgId);
+      return sendJson(res, 200, { data });
+    }
+
+    if (url.pathname === "/api/v1/ai/chat") {
+      if (req.method !== "POST") return sendError(res, 405, "method_not_allowed", "Method not allowed");
+      const token = requireAuth(req, res, repos); if (!token) return;
+
+      const quota = consumeAiQuota(state, token.orgId);
+      if (!quota.allowed) return sendError(res, 429, "quota_exceeded", "Daily AI quota exceeded");
+
+      let body; try { body = await parseJsonBody(req); } catch { return sendError(res, 400, "invalid_json", "Request body must be valid JSON"); }
+      const prompt = String(body.prompt || "").trim();
+      if (!prompt) return sendError(res, 400, "validation_error", "prompt is required");
+
+      const guard = runGuardrails(prompt);
+      if (!guard.allowed) {
+        await audit(repos, { userId: token.sub, orgId: token.orgId, action: "ai.request.blocked", payload: { reason: guard.reason } });
+        return sendError(res, 400, "guardrail_blocked", guard.reason);
+      }
+
+      const context = buildAiContext(state, token.orgId, prompt);
+      const answer = `Processed by server-side AI gateway. Found ${context.tenders.length} tender matches and ${context.recentDocs.length} related documents.`;
+
+      const conversation = {
+        id: crypto.randomUUID(),
+        orgId: token.orgId,
+        userId: token.sub,
+        prompt,
+        answer,
+        context,
+        createdAt: nowIso()
+      };
+      state.aiConversations.push(conversation);
+      await audit(repos, { userId: token.sub, orgId: token.orgId, action: "ai.request.success", payload: { conversationId: conversation.id } });
+
+      return sendJson(res, 200, {
+        data: {
+          conversationId: conversation.id,
+          answer,
+          citations: [
+            ...context.tenders.map((t) => ({ type: "tender", id: t.id })),
+            ...context.recentDocs.map((d) => ({ type: "document", id: d.id }))
+          ],
+          usage: {
+            remainingDailyRequests: quota.remaining
+          }
+        }
+      });
+    }
+
+    if (url.pathname === "/api/v1/ai/usage") {
+      if (req.method !== "GET") return sendError(res, 405, "method_not_allowed", "Method not allowed");
+      const token = requireAuth(req, res, repos); if (!token) return;
+      const dateKey = getDateKey();
+      const row = state.aiUsageDaily.find((x) => x.orgId === token.orgId && x.dateKey === dateKey);
+      const used = row?.count || 0;
+      return sendJson(res, 200, { data: { dateKey, used, limit: AI_DAILY_REQUEST_LIMIT, remaining: Math.max(0, AI_DAILY_REQUEST_LIMIT - used) } });
     }
 
     sendError(res, 404, "not_found", "Route not found");

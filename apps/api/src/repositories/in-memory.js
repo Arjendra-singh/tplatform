@@ -77,3 +77,26 @@ export class InMemoryAuditLogRepository {
   createLog(input) { this.db.auditLogs.push(input); return input; }
   listLogs({ action } = {}) { return this.db.auditLogs.filter((l) => !action || l.action === action); }
 }
+
+
+export class InMemoryDocumentRepository {
+  constructor(db) { this.db = db; }
+
+  createFolder(input) { this.db.documentFolders.push(input); return input; }
+  listFoldersByOrg(orgId) { return this.db.documentFolders.filter((f) => f.orgId === orgId && !f.deletedAt); }
+  findFolderById(folderId) { return this.db.documentFolders.find((f) => f.id === folderId && !f.deletedAt) || null; }
+  renameFolder(folderId, name, updatedAt) {
+    const folder = this.db.documentFolders.find((f) => f.id === folderId && !f.deletedAt);
+    if (!folder) return null;
+    folder.name = name;
+    folder.updatedAt = updatedAt;
+    return folder;
+  }
+
+  createFile(input) { this.db.documentFiles.push(input); return input; }
+  listFilesByFolder(folderId) { return this.db.documentFiles.filter((f) => f.folderId === folderId && !f.deletedAt); }
+  findFileById(fileId) { return this.db.documentFiles.find((f) => f.id === fileId && !f.deletedAt) || null; }
+
+  createFileVersion(input) { this.db.documentFileVersions.push(input); return input; }
+  listFileVersions(fileId) { return this.db.documentFileVersions.filter((v) => v.fileId === fileId).sort((a,b)=>a.version-b.version); }
+}

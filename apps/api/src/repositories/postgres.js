@@ -86,3 +86,53 @@ export class PostgresAuditLogRepository {
     return r.rows;
   }
 }
+
+
+export class PostgresDocumentRepository {
+  constructor(client) { this.client = client; }
+
+  async createFolder(input) {
+    const r = await this.client.query(`insert into document_folders (id,org_id,name,created_by,created_at,updated_at,deleted_at) values ($1,$2,$3,$4,$5,$6,$7) returning id,org_id as "orgId",name,created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt"`, [input.id, input.orgId, input.name, input.createdBy, input.createdAt, input.updatedAt, input.deletedAt || null]);
+    return r.rows[0];
+  }
+
+  async listFoldersByOrg(orgId) {
+    const r = await this.client.query(`select id,org_id as "orgId",name,created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt" from document_folders where org_id=$1 and deleted_at is null order by created_at desc`, [orgId]);
+    return r.rows;
+  }
+
+  async findFolderById(folderId) {
+    const r = await this.client.query(`select id,org_id as "orgId",name,created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt" from document_folders where id=$1 and deleted_at is null limit 1`, [folderId]);
+    return r.rows[0] || null;
+  }
+
+  async renameFolder(folderId, name, updatedAt) {
+    const r = await this.client.query(`update document_folders set name=$2,updated_at=$3 where id=$1 and deleted_at is null returning id,org_id as "orgId",name,created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt"`, [folderId, name, updatedAt]);
+    return r.rows[0] || null;
+  }
+
+  async createFile(input) {
+    const r = await this.client.query(`insert into document_files (id,org_id,folder_id,name,mime_type,size_bytes,created_by,created_at,updated_at,deleted_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id,org_id as "orgId",folder_id as "folderId",name,mime_type as "mimeType",size_bytes as "sizeBytes",created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt"`, [input.id,input.orgId,input.folderId,input.name,input.mimeType,input.sizeBytes,input.createdBy,input.createdAt,input.updatedAt,input.deletedAt || null]);
+    return r.rows[0];
+  }
+
+  async listFilesByFolder(folderId) {
+    const r = await this.client.query(`select id,org_id as "orgId",folder_id as "folderId",name,mime_type as "mimeType",size_bytes as "sizeBytes",created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt" from document_files where folder_id=$1 and deleted_at is null order by created_at desc`, [folderId]);
+    return r.rows;
+  }
+
+  async findFileById(fileId) {
+    const r = await this.client.query(`select id,org_id as "orgId",folder_id as "folderId",name,mime_type as "mimeType",size_bytes as "sizeBytes",created_by as "createdBy",created_at as "createdAt",updated_at as "updatedAt",deleted_at as "deletedAt" from document_files where id=$1 and deleted_at is null limit 1`, [fileId]);
+    return r.rows[0] || null;
+  }
+
+  async createFileVersion(input) {
+    const r = await this.client.query(`insert into document_file_versions (id,file_id,version,storage_key,checksum,size_bytes,created_by,created_at) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id,file_id as "fileId",version,storage_key as "storageKey",checksum,size_bytes as "sizeBytes",created_by as "createdBy",created_at as "createdAt"`, [input.id,input.fileId,input.version,input.storageKey,input.checksum,input.sizeBytes,input.createdBy,input.createdAt]);
+    return r.rows[0];
+  }
+
+  async listFileVersions(fileId) {
+    const r = await this.client.query(`select id,file_id as "fileId",version,storage_key as "storageKey",checksum,size_bytes as "sizeBytes",created_by as "createdBy",created_at as "createdAt" from document_file_versions where file_id=$1 order by version asc`, [fileId]);
+    return r.rows;
+  }
+}

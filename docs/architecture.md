@@ -54,3 +54,14 @@
 
 - Rate limiting on auth lifecycle endpoints (in-memory now, Redis-ready abstraction next).
 - Audit logging repository added for security and traceability of auth and tender actions.
+
+- AI gateway now exposes org-scoped usage quota enforcement and guardrail policy checks before response generation.
+- Document pipeline baseline includes storage-key registration plus AV/OCR/index stage tracking.
+
+
+## 7) Ops artifacts in repository
+
+- Terraform baseline: `ops/iac/terraform`
+- Kubernetes deployment baseline: `deploy/k8s/api-deployment.yaml`
+- Monitoring & alerting: `ops/monitoring`
+- DR and security runbooks: `ops/runbooks`

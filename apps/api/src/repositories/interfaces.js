@@ -33,3 +33,16 @@
  * - listLogs(filters)
  */
 export {};
+
+/**
+ * DocumentRepository:
+ * - createFolder(input)
+ * - listFoldersByOrg(orgId)
+ * - findFolderById(folderId)
+ * - renameFolder(folderId, name)
+ * - createFile(input)
+ * - listFilesByFolder(folderId)
+ * - findFileById(fileId)
+ * - createFileVersion(input)
+ * - listFileVersions(fileId)
+ */
