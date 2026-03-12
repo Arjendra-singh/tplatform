@@ -42,6 +42,24 @@
 - ✅ Monitoring dashboards + alerting baseline (Prometheus rules + Grafana dashboard)
 - ✅ Disaster recovery drills and backup/restore validation scripts and tests
 - ✅ Security review baseline and penetration remediation tracker
+- Folder/file CRUD APIs + versioning
+- Object storage integration
+- Antivirus + MIME validation + OCR/indexing queue
+- Replace in-memory document library with persistent data
+
+## Sprint 4 — AI assistant hardening
+
+- Server-side AI gateway (no client-side key/model calls)
+- File context pipeline + vector/retrieval strategy
+- Guardrails, moderation, and response citation policy
+- Usage analytics and per-org quotas
+
+## Sprint 5 — Ops + production readiness
+
+- IaC for cloud deployment
+- Monitoring dashboards + alerting
+- Disaster recovery drills and backup restore tests
+- Security review and penetration test remediation
 
 ## Exit criteria for v1 launch
 
