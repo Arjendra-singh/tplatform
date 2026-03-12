@@ -1,0 +1,10 @@
+{
+  "title": "Tender Sahayak API - Production",
+  "panels": [
+    {"title": "Request Rate", "type": "timeseries", "targets": [{"expr": "sum(rate(http_requests_total{job='tender-api'}[5m]))"}]},
+    {"title": "5xx Rate", "type": "timeseries", "targets": [{"expr": "sum(rate(http_requests_total{job='tender-api',status=~'5..'}[5m]))"}]},
+    {"title": "P95 Latency", "type": "timeseries", "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job='tender-api'}[5m])) by (le))"}]}
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
