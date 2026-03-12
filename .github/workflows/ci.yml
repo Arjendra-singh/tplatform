@@ -19,5 +19,8 @@ jobs:
       - name: Install
         run: npm install
 
+      - name: Validate JSON
+        run: npm run validate:json
+
       - name: Test
         run: npm test
