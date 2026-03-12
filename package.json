@@ -11,5 +11,6 @@
     "start:api": "npm run start --workspace @tplatform/api",
     "backup:state": "node apps/api/scripts/backup-state.mjs",
     "restore:state": "node apps/api/scripts/restore-state.mjs"
+    "start:api": "npm run start --workspace @tplatform/api"
   }
 }
