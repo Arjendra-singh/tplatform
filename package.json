@@ -12,5 +12,9 @@
     "backup:state": "node apps/api/scripts/backup-state.mjs",
     "restore:state": "node apps/api/scripts/restore-state.mjs",
     "validate:json": "node scripts/validate-json.mjs"
+"scripts": {
+  "start": "node server.js",
+  "test": "node --test",
+  "validate:json": "node -e \"JSON.parse(require('fs').readFileSync('package.json','utf8'))\""
   }
 }
