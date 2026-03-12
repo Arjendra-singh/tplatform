@@ -1,0 +1,24 @@
+groups:
+  - name: tender-api
+    rules:
+      - alert: TenderApiDown
+        expr: up{job="tender-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tender API is down"
+      - alert: TenderApiHigh5xxRate
+        expr: sum(rate(http_requests_total{job="tender-api",status=~"5.."}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tender API 5xx rate is elevated"
+      - alert: TenderApiHighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="tender-api"}[5m])) by (le)) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tender API p95 latency above SLO"
