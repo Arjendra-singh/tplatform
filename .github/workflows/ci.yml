@@ -17,6 +17,10 @@ jobs:
           node-version: 20
 
       - name: Validate package manifests (pre-install)
+        run: node scripts/ci-preflight.mjs
+
+      - name: Install
+        run: npm ci
         run: |
           node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('apps/api/package.json','utf8'))"
