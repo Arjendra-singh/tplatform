@@ -1,0 +1,17 @@
+{
+  "name": "tender-sahayak-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace @tplatform/api",
+    "start:api": "npm run start --workspace @tplatform/api",
+    "backup:state": "node apps/api/scripts/backup-state.mjs",
+    "restore:state": "node apps/api/scripts/restore-state.mjs",
+    "validate:json": "node scripts/validate-json.mjs",
+    "check:no-conflicts": "node scripts/check-no-conflict-markers.mjs"
+  }
+}
